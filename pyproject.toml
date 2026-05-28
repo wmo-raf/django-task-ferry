@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "django-task-ferry"
+version = "0.1.0"
+authors = [
+    { name = "Erick Otenyo", email = "eotenyo@wmo.int" },
+]
+description = "Background job tracking for Django — typed job types, Redis progress caching, pluggable executors, and cancellation."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+keywords = ["django", "background-jobs", "task-queue", "celery", "progress", "async"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Django",
+    "Framework :: Django :: 4.2",
+    "Framework :: Django :: 5.0",
+    "Framework :: Django :: 5.1",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "django>=4.2",
+    "djangorestframework>=3.14",
+]
+
+[project.optional-dependencies]
+celery = ["celery>=5.0"]
+django-tasks = ["django-tasks>=0.10"]
+dev = [
+    "pytest>=8.0",
+    "pytest-django>=4.8",
+    "django-cache-memoize",
+]
+
+[project.urls]
+Repository = "https://github.com/wmo-raf/django-task-ferry"
+Documentation = "https://github.com/wmo-raf/django-task-ferry#readme"
+"Bug Tracker" = "https://github.com/wmo-raf/django-task-ferry/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["task_ferry"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "tests.settings"
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 88
