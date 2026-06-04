@@ -49,6 +49,12 @@ class JobType:
     of the same file), or higher for workloads that parallelise naturally.
     """
 
+    queue: Optional[str] = None
+    """
+    Queue name to route this job type to. When None, falls back to the
+    global TASK_FERRY["CELERY_QUEUE"] setting (CeleryExecutor only).
+    """
+
     def prepare_values(self, values: Dict[str, Any], user: Any) -> Dict[str, Any]:
         """
         Validate and transform request values before the job model is created.

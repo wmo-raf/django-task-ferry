@@ -82,7 +82,7 @@ class JobHandler:
         job_type.after_job_creation(job, kwargs)
         
         # Dispatch — executor handles on_commit wrapping where needed.
-        get_executor().enqueue(job.id)
+        get_executor().enqueue(job.id, queue=job_type.queue)
         
         return job
     

@@ -20,7 +20,7 @@ class ImmediateExecutor(BaseExecutor):
     so test assertions can catch them directly.
     """
 
-    def enqueue(self, job_id: int) -> None:
+    def enqueue(self, job_id: int, queue: str | None = None) -> None:
         from task_ferry.handler import JobHandler
 
         JobHandler.run_by_id(job_id)

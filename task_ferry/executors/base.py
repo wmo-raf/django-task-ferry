@@ -11,7 +11,7 @@ class BaseExecutor(ABC):
     """
 
     @abstractmethod
-    def enqueue(self, job_id: int) -> None:
+    def enqueue(self, job_id: int, queue: str | None = None) -> None:
         """
         Schedule the job with the given ID to be executed.
 

@@ -18,15 +18,15 @@ class CeleryExecutor(BaseExecutor):
     is guaranteed to be visible to the worker before it starts.
     """
 
-    def enqueue(self, job_id: int) -> None:
+    def enqueue(self, job_id: int, queue: str | None = None) -> None:
         from django.db import transaction
 
         from task_ferry.conf import get_setting
         from task_ferry.tasks import run_async_job
 
-        queue = get_setting("CELERY_QUEUE")
+        resolved_queue = queue or get_setting("CELERY_QUEUE")
 
         def _dispatch():
-            run_async_job.apply_async(args=[job_id], queue=queue)
+            run_async_job.apply_async(args=[job_id], queue=resolved_queue)
 
         transaction.on_commit(_dispatch)
