@@ -45,6 +45,7 @@ dev = [
 [project.urls]
 Repository = "https://github.com/wmo-raf/django-task-ferry"
 Documentation = "https://github.com/wmo-raf/django-task-ferry#readme"
+Changelog = "https://github.com/wmo-raf/django-task-ferry/blob/main/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/wmo-raf/django-task-ferry/issues"
 
 [tool.hatch.build.targets.wheel]
