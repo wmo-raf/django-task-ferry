@@ -57,7 +57,7 @@ INSTALLED_APPS = [
 # Celery (recommended for production)
 TASK_FERRY = {
     "EXECUTOR": "task_ferry.executors.celery.CeleryExecutor",
-    "CELERY_QUEUE": "default",  # optional, defaults to "default"
+    "CELERY_QUEUE": "default",  # global fallback queue, defaults to "default"
     "PROGRESS_CACHE_TIMEOUT": 3600,  # seconds; optional
     "JOB_EXPIRY_DAYS": 7,  # cleanup threshold; optional
     "MAX_JOBS_PER_USER_PER_TYPE": 5,  # global default max_count; optional
@@ -77,6 +77,25 @@ TASKS = {
 TASK_FERRY = {
     "EXECUTOR": "task_ferry.executors.immediate.ImmediateExecutor",
 }
+```
+
+#### Per-job-type queue routing (Celery only)
+
+Set `queue` on a `JobType` to send that type to a specific Celery queue instead of
+the global `CELERY_QUEUE` default. This has no effect when using `DjangoTasksExecutor`
+or `ImmediateExecutor`.
+
+```python
+class HeavyExportJobType(JobType):
+    type = "heavy_export"
+    model_class = HeavyExportJob
+    queue = "heavy"  # routed to the "heavy" worker pool
+
+
+class QuickReportJobType(JobType):
+    type = "quick_report"
+    model_class = QuickReportJob
+    # queue not set — falls back to TASK_FERRY["CELERY_QUEUE"]
 ```
 
 ### 3. Run migrations
@@ -137,6 +156,7 @@ class ExportJobType(JobType):
     type = "export_table"  # unique string identifier
     model_class = ExportJob
     max_count = 2  # max concurrent jobs per user
+    queue = "exports"  # optional: route to a specific Celery queue
     
     def prepare_values(self, values: dict, user) -> dict:
         """Validate and transform kwargs before the Job row is created."""
@@ -182,6 +202,35 @@ class MyAppConfig(AppConfig):
 
 ---
 
+## Job model reference
+
+Every concrete job model inherits the following fields from `Job`:
+
+| Field                  | Type       | Description                                                                              |
+|------------------------|------------|------------------------------------------------------------------------------------------|
+| `state`                | `str`      | Current lifecycle state. One of `pending`, `started`, `finished`, `failed`, `cancelled`. |
+| `progress_percentage`  | `int`      | 0–100. Written to Redis mid-run; persisted to DB at completion.                          |
+| `progress_state`       | `str`      | Human-readable description of the current step.                                          |
+| `error`                | `str`      | Short error string (exception message). Empty unless the job failed.                     |
+| `human_readable_error` | `str`      | Longer, user-facing error description.                                                   |
+| `user`                 | `User`     | The user who triggered the job. `None` for system jobs.                                  |
+| `created_at`           | `datetime` | When the job was created.                                                                |
+| `updated_at`           | `datetime` | Last state change timestamp.                                                             |
+
+Convenience properties (read from cache, falling back to the DB):
+
+| Property       | Description                                                                                                         |
+|----------------|---------------------------------------------------------------------------------------------------------------------|
+| `is_pending`   | `True` if state is `pending`.                                                                                       |
+| `is_running`   | `True` if state is `started`.                                                                                       |
+| `is_finished`  | `True` if state is `finished`.                                                                                      |
+| `is_failed`    | `True` if state is `failed`.                                                                                        |
+| `is_cancelled` | `True` if state is `cancelled`.                                                                                     |
+| `has_ended`    | `True` if state is `finished`, `failed`, or `cancelled`.                                                            |
+| `specific`     | Returns the concrete subclass instance. Use this when you have a base `Job` queryset and need type-specific fields. |
+
+---
+
 ## Dispatching a job
 
 ```python
@@ -204,6 +253,18 @@ job = JobHandler.create_and_start(
 
 `create_and_start` returns the saved Job instance immediately. The actual work runs
 asynchronously inside the configured executor.
+
+### Listing jobs for a user
+
+```python
+jobs = JobHandler.get_jobs_for_user(
+    user=request.user,
+    states=["pending", "started"],  # optional filter
+    job_type_name="export_table",  # optional filter
+    limit=20,
+    offset=0,
+)
+```
 
 ---
 
@@ -272,7 +333,18 @@ def on_cancelled(self, job: ExportJob) -> None:
 
 ---
 
-## Lifecycle hooks
+## JobType reference
+
+### Attributes
+
+| Attribute     | Type            | Default | Description                                                                                                 |
+|---------------|-----------------|---------|-------------------------------------------------------------------------------------------------------------|
+| `type`        | `str`           | —       | **Required.** Unique string identifier, e.g. `"export_table"`.                                              |
+| `model_class` | `Type[Job]`     | —       | **Required.** The `Job` subclass whose DB table stores this type's fields.                                  |
+| `max_count`   | `int`           | `5`     | Maximum pending-or-running jobs of this type per user. Set to `1` for types where duplicates make no sense. |
+| `queue`       | `str` or `None` | `None`  | Celery queue to route this job type to. When `None`, falls back to the global `TASK_FERRY["CELERY_QUEUE"]`. |
+
+### Hooks
 
 All hooks have no-op defaults. Override only what you need:
 
@@ -284,6 +356,39 @@ All hooks have no-op defaults. Override only what you need:
 | `on_error(job, exc)`              | After the job is marked failed. Log or alert.                                                             |
 | `on_cancelled(job)`               | After the job is marked cancelled. Clean up partial state.                                                |
 | `before_delete(job)`              | Before `cleanup_old_jobs` deletes an expired job row.                                                     |
+
+---
+
+## Progress API reference
+
+A `Progress` object is passed to `run(job, progress)`. It is rooted at 100 — i.e.
+calling `increment` until all steps are done brings it to 100%.
+
+| Method / Property                 | Description                                                                                                        |
+|-----------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `increment(by=1, state="")`       | Advance by `by` steps and fire the progress callback. Clamped — will not exceed 100%.                              |
+| `create_child(represents, total)` | Return a child `Progress` with `total` steps. When the child completes, the parent advances by `represents` units. |
+| `percentage`                      | Current completion as an integer 0–100.                                                                            |
+
+#### Multiple children with unequal weights
+
+```python
+def run(self, job, progress):
+    # 10% — fetch
+    progress.increment(10, state="Fetching...")
+    
+    # 70% — process rows (5 items, each worth 70/5 = 14% of total)
+    process = progress.create_child(represents=70, total=5)
+    for item in items:
+        process_item(item)
+        process.increment(state=f"Processing {item}...")
+    
+    # 20% — finalise
+    progress.increment(20, state="Done")
+```
+
+Multiple children can be created up front and advanced independently — they do not
+overwrite each other's contribution.
 
 ---
 
@@ -329,7 +434,7 @@ it runs:
 ```python
 def test_cancel_cleans_up(db, user, monkeypatch):
     from task_ferry.executors.immediate import ImmediateExecutor
-    monkeypatch.setattr(ImmediateExecutor, "enqueue", lambda self, job_id: None)
+    monkeypatch.setattr(ImmediateExecutor, "enqueue", lambda self, job_id, queue=None: None)
     
     job = JobHandler.create_and_start(user, "export_table", table_id=1)
     JobHandler.cancel(user, job.id)
