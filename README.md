@@ -51,19 +51,41 @@ INSTALLED_APPS = [
 
 ### 2. Configure the executor
 
+All configuration lives under a single `TASK_FERRY` dict in your Django settings.
+
+#### Settings reference
+
+| Key                          | Default                                              | Description                                                                                            |
+|------------------------------|------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
+| `EXECUTOR`                   | `"task_ferry.executors.immediate.ImmediateExecutor"` | Dotted path to the executor class. See [Executors](#executors) below.                                  |
+| `CELERY_QUEUE`               | `"default"`                                          | Global Celery queue for all jobs. Individual job types can override this with their `queue` attribute. |
+| `PROGRESS_CACHE_TIMEOUT`     | `3600`                                               | Seconds to keep progress data in the cache. Should be longer than your longest expected job.           |
+| `JOB_EXPIRY_DAYS`            | `7`                                                  | Ended jobs older than this many days are removed by `JobHandler.cleanup_old_jobs()`.                   |
+| `MAX_JOBS_PER_USER_PER_TYPE` | `5`                                                  | Global default for `JobType.max_count`. Individual job types can override this.                        |
+
+#### Executors
+
+Three executors are included:
+
+| Executor                                                | When to use                                                         |
+|---------------------------------------------------------|---------------------------------------------------------------------|
+| `task_ferry.executors.celery.CeleryExecutor`            | Production — requires `pip install django-task-ferry[celery]`       |
+| `task_ferry.executors.django_tasks.DjangoTasksExecutor` | Production — requires `pip install django-task-ferry[django-tasks]` |
+| `task_ferry.executors.immediate.ImmediateExecutor`      | Tests and scripts — runs jobs synchronously in the current process  |
+
 ```python
 # settings.py
 
 # Celery (recommended for production)
 TASK_FERRY = {
     "EXECUTOR": "task_ferry.executors.celery.CeleryExecutor",
-    "CELERY_QUEUE": "default",  # global fallback queue, defaults to "default"
-    "PROGRESS_CACHE_TIMEOUT": 3600,  # seconds; optional
-    "JOB_EXPIRY_DAYS": 7,  # cleanup threshold; optional
-    "MAX_JOBS_PER_USER_PER_TYPE": 5,  # global default max_count; optional
+    "CELERY_QUEUE": "default",
+    "PROGRESS_CACHE_TIMEOUT": 3600,
+    "JOB_EXPIRY_DAYS": 7,
+    "MAX_JOBS_PER_USER_PER_TYPE": 5,
 }
 
-# Or django-tasks
+# django-tasks (DEP-0014)
 TASK_FERRY = {
     "EXECUTOR": "task_ferry.executors.django_tasks.DjangoTasksExecutor",
 }
@@ -73,7 +95,7 @@ TASKS = {
     }
 }
 
-# Or synchronous (tests / management commands)
+# Synchronous — tests / management commands
 TASK_FERRY = {
     "EXECUTOR": "task_ferry.executors.immediate.ImmediateExecutor",
 }
